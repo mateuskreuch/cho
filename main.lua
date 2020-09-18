@@ -15,9 +15,9 @@ local COLOR_BLACK = {0, 0, 0}
 local COLOR_WHITE = {1, 1, 1}
 local COLOR_CARDINALS = {0.94, 0.85, 0.7}
 local COLOR_DIAGONALS = {0.7, 0.53, 0.38}
-local COLOR_SUBDIAGONALS = {0.49, 0.3, 0.2}
+local COLOR_SUBDIAGONALS = {0.75, 0.71, 0.65}
 local COLOR_OUTLINE = {0.1, 0.1, 0.1}
-local COLOR_MARKER = {0.13, 0.82, 0.76}
+local COLOR_MARKER = {0, 0.41, 0.87}
 
 -- utility functions -----------------------------------------------------------
 
@@ -97,6 +97,14 @@ function lgfx.stripedDisk(x, y, radius, colors)
 	end
 end
 
+function lgfx.y(x, y, radius)
+	radius = radius * sqrt(2)/2
+
+	lgfx.line(x, y, x + radius, y)
+	lgfx.line(x, y, x - radius, y + radius)
+	lgfx.line(x, y, x - radius, y - radius)
+end
+
 -- implementation --------------------------------------------------------------
 
 local Pawn, Rook, King, Board, Point
@@ -140,6 +148,10 @@ end
 
 --------------------------------------------------------------------------------
 
+function Board.isIntersection(p)
+	return (p.y == 2 and p.x % 4 ~= 0) or (p.y == 4 and p.x % 2 ~= 0)
+end
+
 function Board.pointToIndex(point)
 	if     point.y  < 0 then return nil
 	elseif point.y == 0 then return 1
@@ -168,6 +180,10 @@ function Board.xsteps(y)
 	end
 end
 
+function Board.delete(O, position)
+	O._pieces[Board.pointToIndex(position)] = nil
+end
+
 function Board.draw(O)
 	local bw, bh = O._texture:getDimensions()
 
@@ -191,15 +207,13 @@ function Board.draw(O)
 	end
 
 	if O._selected then
-		for _, direction in ipairs(O._selected:eyes()) do
-			for _, point in pairs(direction) do
-				local px, py = point.y * 2*O._radiusStep, 0
+		for _, point in pairs(O:listValidMoves()) do
+			local px, py = point.y * 2*O._radiusStep, 0
 
-				lgfx.push()
-				lgfx.rotate(point.x * PI/8)
-				lgfx.colored(lgfx.cross, COLOR_MARKER, px, py, O._pieceSize/2)
-				lgfx.pop()
-			end
+			lgfx.push()
+			lgfx.rotate(point.x * PI/8)
+			lgfx.colored(lgfx.cross, COLOR_MARKER, px, py, O._pieceSize/2)
+			lgfx.pop()
 		end
 	end
 
@@ -208,6 +222,55 @@ end
 
 function Board.get(O, position)
 	return O._pieces[Board.pointToIndex(position)]
+end
+
+function Board.listValidMoves(O)
+	local moves = {}
+
+	for _, direction in ipairs(O._selected:eyes()) do
+		for _, point in ipairs(direction) do
+			local target = O:get(point)
+
+			if point.x % Board.xsteps(point.y) == 0 then
+				if target then
+					if target.color ~= O._selected.color then
+						moves[#moves + 1] = point
+					end
+
+					break
+				else
+					moves[#moves + 1] = point
+				end
+			else
+				break
+			end
+		end
+	end
+
+	return moves
+end
+
+function Board.move(O, a, b)
+	local piece = O:get(a)
+
+	if piece then
+		O:delete(a)
+
+		if b.y == 0 then
+			if is(piece, Pawn) then
+				O:set(Rook(piece.color, b))
+			elseif is(piece, Rook) then
+				O:set(Pawn(piece.color, b))
+			elseif is(piece, King) then
+				Board:reset()
+			end
+		elseif is(O:get(b), King) then
+			Board:reset()
+		else
+			piece.position = b
+			O:set(piece)
+		end
+	end
 end
 
 function Board.pixelToPoint(O, pixel)
@@ -249,6 +312,18 @@ function Board.renderBoardTexture(O)
 		lgfx.colored(lgfx.ellipse, COLOR_OUTLINE, 'line', cx, cy, i*O._radiusStep)
 	end
 
+	for y = 2, 4, 2 do
+		for x = Board.xsteps(y), 15, 2*Board.xsteps(y) do
+			local px, py = y * 2*O._radiusStep - 0.75*O._radiusStep, 0
+
+			lgfx.push()
+			lgfx.translate(cx, cy)
+			lgfx.rotate(x * PI/8)
+			lgfx.colored(lgfx.y, COLOR_OUTLINE, px, py, O._pieceSize/2)
+			lgfx.pop()
+		end
+	end
+
 	lgfx.setCanvas()
 end
 
@@ -257,21 +332,34 @@ function Board.reset(O)
 	O._selected = nil
 
 	for dx, color in pairs({[0] = COLOR_BLACK, [8] = COLOR_WHITE}) do
-		O:set(Rook(color, Point(4 + dx, 6)))
-		O:set(King(color, Point(4 + dx, 5)))
-		O:set(Rook(color, Point(4 + dx, 4)))
 		O:set(Pawn(color, Point(4 + dx, 3)))
+		O:set(King(color, Point(4 + dx, 4)))
+		O:set(Rook(color, Point(4 + dx, 5)))
+		O:set(Rook(color, Point(4 + dx, 6)))
 
-		for x = 0, 2, 2 do
+		for x = -1, 1, 2 do
 			for y = 4, 6 do
-				O:set(Pawn(color, Point(3 + x + dx, y)))
+				O:set(Pawn(color, Point(4 + dx + x*(y - 3), y)))
 			end
 		end
 	end
 end
 
 function Board.select(O, point)
-	O._selected = O:get(point)
+	local target = O:get(point)
+
+	if O._selected then
+		if contains(O:listValidMoves(), point) then
+			O:move(O._selected.position, point)
+			O._selected = nil
+		elseif target and target.color == O._selected.color then
+			O._selected = target ~= O._selected and target or nil
+		else
+			O._selected = nil
+		end
+	else
+		O._selected = target
+	end
 end
 
 function Board.set(O, piece)
@@ -300,12 +388,15 @@ function Pawn.eyes(O)
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y + 1)}
 	end
 
-	if (O.position.y == 2 and O.position.x % 4 ~= 0)
-	or (O.position.y == 4 and O.position.x % 2 ~= 0) then
+	if Board.isIntersection(O.position) then
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x - m, O.position.y - 1)}
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x + m, O.position.y - 1)}
 	else
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y - 1)}
+
+		if O.position.y > 0 then
+			eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y - 2)}
+		end
 	end
 
 	return eyes
@@ -332,7 +423,7 @@ function Rook.eyes(O)
 				horizontal[#horizontal + 1] = Board.wrapPoint(O.position.x + 4, i)
 			end
 		else
-			for i = O.position.x + j*m, O.position.x + 8*j, j*m do
+			for i = O.position.x + j*m, O.position.x + 15*j, j*m do
 				horizontal[#horizontal + 1] = Board.wrapPoint(i, O.position.y)
 			end
 		end
@@ -366,8 +457,7 @@ function King.eyes(O)
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y + 1)}
 	end
 
-	if not ((O.position.y == 2 and O.position.x % 4 ~= 0)
-	or (O.position.y == 4 and O.position.x % 2 ~= 0)) then
+	if not Board.isIntersection(O.position) then
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y - 1)}
 	end
 
