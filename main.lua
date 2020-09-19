@@ -69,10 +69,10 @@ function lgfx.colored(func, color, ...)
 	lgfx.setColor(COLOR_WHITE)
 end
 
-function lgfx.cross(x, y, radius)
+function lgfx.cross(x, y, radius, width)
 	radius = radius * sqrt(2)/2
 
-	lgfx.setLineWidth(3)
+	lgfx.setLineWidth(width)
 	lgfx.line(x - radius, y - radius, x + radius, y + radius)
 	lgfx.line(x - radius, y + radius, x + radius, y - radius)
 	lgfx.setLineWidth(1)
@@ -100,7 +100,6 @@ end
 function lgfx.y(x, y, radius)
 	radius = radius * sqrt(2)/2
 
-	lgfx.line(x, y, x + radius, y)
 	lgfx.line(x, y, x - radius, y + radius)
 	lgfx.line(x, y, x - radius, y - radius)
 end
@@ -173,7 +172,7 @@ function Board.wrapPoint(x, y)
 end
 
 function Board.xsteps(y)
-	if     y <= 0 then return 4 -- 16
+	if     y <= 0 then return 16 -- 16
 	elseif y <= 1 then return 4
 	elseif y <= 3 then return 2
 	elseif y <= 6 then return 1
@@ -212,7 +211,7 @@ function Board.draw(O)
 
 			lgfx.push()
 			lgfx.rotate(point.x * PI/8)
-			lgfx.colored(lgfx.cross, COLOR_MARKER, px, py, O._pieceSize/2)
+			lgfx.colored(lgfx.cross, COLOR_MARKER, px, py, O._pieceSize/2, O._pieceSize/3)
 			lgfx.pop()
 		end
 	end
@@ -256,16 +255,12 @@ function Board.move(O, a, b)
 	if piece then
 		O:delete(a)
 
-		if b.y == 0 then
-			if is(piece, Pawn) then
-				O:set(Rook(piece.color, b))
-			elseif is(piece, Rook) then
-				O:set(Pawn(piece.color, b))
-			elseif is(piece, King) then
-				Board:reset()
-			end
-		elseif is(O:get(b), King) then
+		if is(O:get(b), King) or is(O:get(Point(0, 0)), King) then
 			Board:reset()
+		elseif b.y == 0 and is(piece, Pawn) then
+			O:set(Rook(piece.color, b))
+		elseif b.y == 0 and is(piece, Rook) then
+			O:set(Pawn(piece.color, b))
 		else
 			piece.position = b
 			O:set(piece)
@@ -314,12 +309,12 @@ function Board.renderBoardTexture(O)
 
 	for y = 2, 4, 2 do
 		for x = Board.xsteps(y), 15, 2*Board.xsteps(y) do
-			local px, py = y * 2*O._radiusStep - 0.75*O._radiusStep, 0
+			local px, py = y * 2*O._radiusStep - 0.55*O._radiusStep, 0
 
 			lgfx.push()
 			lgfx.translate(cx, cy)
 			lgfx.rotate(x * PI/8)
-			lgfx.colored(lgfx.y, COLOR_OUTLINE, px, py, O._pieceSize/2)
+			lgfx.colored(lgfx.y, COLOR_OUTLINE, px, py, O._pieceSize)
 			lgfx.pop()
 		end
 	end
@@ -333,13 +328,13 @@ function Board.reset(O)
 
 	for dx, color in pairs({[0] = COLOR_BLACK, [8] = COLOR_WHITE}) do
 		O:set(Pawn(color, Point(4 + dx, 3)))
-		O:set(King(color, Point(4 + dx, 4)))
+		O:set(Rook(color, Point(4 + dx, 4)))
 		O:set(Rook(color, Point(4 + dx, 5)))
-		O:set(Rook(color, Point(4 + dx, 6)))
+		O:set(King(color, Point(4 + dx, 6)))
 
 		for x = -1, 1, 2 do
 			for y = 4, 6 do
-				O:set(Pawn(color, Point(4 + dx + x*(y - 3), y)))
+				O:set(Pawn(color, Point(4 + dx + x, y)))
 			end
 		end
 	end
@@ -393,10 +388,6 @@ function Pawn.eyes(O)
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x + m, O.position.y - 1)}
 	else
 		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y - 1)}
-
-		if O.position.y > 0 then
-			eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y - 2)}
-		end
 	end
 
 	return eyes
@@ -450,16 +441,12 @@ end
 
 function King.eyes(O)
 	local m = Board.xsteps(O.position.y)
-	local eyes = {{Board.wrapPoint(O.position.x - m, O.position.y)},
-					  {Board.wrapPoint(O.position.x + m, O.position.y)}}
-
-	if O.position.y < 6 then
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y + 1)}
-	end
-
-	if not Board.isIntersection(O.position) then
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y - 1)}
-	end
+	local eyes = {{Board.wrapPoint(O.position.x - m, O.position.y),
+						Board.wrapPoint(O.position.x - 2*m, O.position.y)},
+					  {Board.wrapPoint(O.position.x + m, O.position.y),
+					   Board.wrapPoint(O.position.x + 2*m, O.position.y)},
+					  {Board.wrapPoint(O.position.x, O.position.y - 1),
+					  	Board.wrapPoint(O.position.x, O.position.y - 2)}}
 
 	return eyes
 end
@@ -485,8 +472,4 @@ function love.mousepressed(px, py)
 	if p then
 		Board:select(p)
 	end
-end
-
-function love.touchpressed(_, px, py)
-	love.mousepressed(px, py)
 end

@@ -4,9 +4,10 @@ function love.conf(love)
    love.window.resizable = true
    love.window.vsync = true
    love.window.fullscreen = false
-	love.window.msaa = 8
 
    love.modules.physics = false
    love.modules.video = false
-   love.modules.touch = false
+   love.modules.audio = false
+   love.modules.sound = false
+   love.modules.keyboard = false
 end
