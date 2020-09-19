@@ -4,6 +4,7 @@ local ipairs = ipairs
 local lgfx = love.graphics
 local min = math.min
 local pairs = pairs
+local setmetatable = setmetatable
 local sqrt = math.sqrt
 local type = type
 
@@ -22,12 +23,7 @@ local COLOR_MARKER = {0, 0.41, 0.87}
 -- utility functions -----------------------------------------------------------
 
 local function class(table)
-	table.__index = table
-	return setmetatable(table, table)
-end
-
-local function is(table, class)
-	return getmetatable(table) == class
+	table.__index = table; return setmetatable(table, table)
 end
 
 local function contains(table, x)
@@ -40,12 +36,15 @@ local function contains(table, x)
 	return false
 end
 
+local function is(table, class)
+	return getmetatable(table) == class
+end
+
 local function loop(table, times, steps)
 	local newtable = {}
-	local length = #table
 
 	for _ = 1, times do
-		for i = 1, length, steps do
+		for i = 1, #table, steps do
 			newtable[#newtable + 1] = table[i]
 		end
 	end
@@ -69,10 +68,10 @@ function lgfx.colored(func, color, ...)
 	lgfx.setColor(COLOR_WHITE)
 end
 
-function lgfx.cross(x, y, radius, width)
+function lgfx.cross(x, y, radius)
 	radius = radius * sqrt(2)/2
 
-	lgfx.setLineWidth(width)
+	lgfx.setLineWidth(radius * 3/4)
 	lgfx.line(x - radius, y - radius, x + radius, y + radius)
 	lgfx.line(x - radius, y + radius, x + radius, y - radius)
 	lgfx.setLineWidth(1)
@@ -82,6 +81,13 @@ function lgfx.outlined(func, color, ...)
 	lgfx.colored(func, color, 'fill', ...)
 	lgfx.colored(func, color == COLOR_BLACK and COLOR_WHITE
 														  or COLOR_OUTLINE, 'line', ...)
+end
+
+function lgfx.rotated(radians, func, ...)
+	lgfx.push()
+	lgfx.rotate(radians)
+	func(...)
+	lgfx.pop()
 end
 
 function lgfx.stripedDisk(x, y, radius, colors)
@@ -97,25 +103,22 @@ function lgfx.stripedDisk(x, y, radius, colors)
 	end
 end
 
-function lgfx.y(x, y, radius)
-	radius = radius * sqrt(2)/2
-
-	lgfx.line(x, y, x - radius, y + radius)
-	lgfx.line(x, y, x - radius, y - radius)
-end
-
 -- implementation --------------------------------------------------------------
 
-local Pawn, Rook, King, Board, Point
+local Pawn, Rook, Queen, Board, Point
 
 do
 	local function __pieceCall(class, color, position)
-		return setmetatable({color = color, position = position}, class)
+		return setmetatable({position = position, _color = color}, class)
 	end
 
-	Pawn = class({__call = __pieceCall})
-	Rook = class({__call = __pieceCall})
-	King = class({__call = __pieceCall})
+	local function isAllyOf(a, b)
+		return a._color == b._color
+	end
+
+	Pawn  = class({__call = __pieceCall, isAllyOf = isAllyOf})
+	Rook  = class({__call = __pieceCall, isAllyOf = isAllyOf})
+	Queen = class({__call = __pieceCall, isAllyOf = isAllyOf})
 
 	Point = class({})
 	Board = {}
@@ -151,17 +154,16 @@ function Board.isIntersection(p)
 	return (p.y == 2 and p.x % 4 ~= 0) or (p.y == 4 and p.x % 2 ~= 0)
 end
 
-function Board.pointToIndex(point)
-	if     point.y  < 0 then return nil
-	elseif point.y == 0 then return 1
-	elseif point.y <= 1 then return point.x/4 + point.y + 1
-	elseif point.y <= 3 then return 5 + point.x/2 + 8*(point.y - 2) + 1
-	elseif point.y <= 6 then return 21 + point.x + 16*(point.y - 4) + 1
-	else                     return nil
+function Board.pointToIndex(p)
+	if     p.y  < 0 then return nil
+	elseif p.y == 0 then return 1
+	elseif p.y <= 1 then return p.x/4 + p.y + 1
+	elseif p.y <= 3 then return 5 + p.x/2 + 8*(p.y - 2) + 1
+	elseif p.y <= 6 then return 21 + p.x + 16*(p.y - 4) + 1
 	end
 end
 
-function Board.wrapPoint(x, y)
+function Board.point(x, y)
 	if y < 0 then
 		x, y = x + 8, -y
 	elseif y == 0 then
@@ -172,76 +174,62 @@ function Board.wrapPoint(x, y)
 end
 
 function Board.xsteps(y)
-	if     y <= 0 then return 16 -- 16
+	if     y <= 0 then return 16
 	elseif y <= 1 then return 4
 	elseif y <= 3 then return 2
 	elseif y <= 6 then return 1
 	end
 end
 
-function Board.delete(O, position)
-	O._pieces[Board.pointToIndex(position)] = nil
-end
-
-function Board.draw(O)
-	local bw, bh = O._texture:getDimensions()
+function Board:draw()
+	local bw, bh = self._texture:getDimensions()
 
 	lgfx.push()
 	lgfx.translate(bw/2, bh/2)
-	lgfx.draw(O._texture, -bw/2, -bh/2)
+	lgfx.draw(self._texture, -bw/2, -bh/2)
 
 	for y = 0, 6 do
 		for x = 0, 15, Board.xsteps(y) do
-			local piece = O:get(Point(x, y))
+			local piece = self:get(Point(x, y))
 
 			if piece then
-				local px, py = y * 2*O._radiusStep, 0
-
-				lgfx.push()
-				lgfx.rotate(x * PI/8)
-				piece:draw(px, py, O._pieceSize)
-				lgfx.pop()
+				lgfx.rotated(x * PI/8, piece.draw, piece,
+								 y * 2*self._radiusStep, 0, self._pieceSize)
 			end
 		end
 	end
 
-	if O._selected then
-		for _, point in pairs(O:listValidMoves()) do
-			local px, py = point.y * 2*O._radiusStep, 0
-
-			lgfx.push()
-			lgfx.rotate(point.x * PI/8)
-			lgfx.colored(lgfx.cross, COLOR_MARKER, px, py, O._pieceSize/2, O._pieceSize/3)
-			lgfx.pop()
+	if self._selected then
+		for _, point in pairs(self:listValidMoves()) do
+			lgfx.rotated(point.x * PI/8, lgfx.colored, lgfx.cross, COLOR_MARKER,
+							 point.y * 2*self._radiusStep, 0, self._pieceSize/2)
 		end
 	end
 
 	lgfx.pop()
 end
 
-function Board.get(O, position)
-	return O._pieces[Board.pointToIndex(position)]
+function Board:get(position)
+	return self._pieces[Board.pointToIndex(position)]
 end
 
-function Board.listValidMoves(O)
+function Board:listValidMoves()
 	local moves = {}
 
-	for _, direction in ipairs(O._selected:eyes()) do
+	for _, direction in ipairs(self._selected:eyes()) do
 		for _, point in ipairs(direction) do
-			local target = O:get(point)
+			local target = self:get(point)
 
-			if point.x % Board.xsteps(point.y) == 0 then
-				if target then
-					if target.color ~= O._selected.color then
-						moves[#moves + 1] = point
-					end
-
-					break
-				else
+			if point.y > 6 or point.x % Board.xsteps(point.y) ~= 0 then
+				break
+			elseif target then
+				if not self._selected:isAllyOf(target) then
 					moves[#moves + 1] = point
 				end
-			else
+
 				break
+			else
+				moves[#moves + 1] = point
 			end
 		end
 	end
@@ -249,206 +237,195 @@ function Board.listValidMoves(O)
 	return moves
 end
 
-function Board.move(O, a, b)
-	local piece = O:get(a)
+function Board:move(piece, point)
+	if is(self:get(point), Queen) or is(self:get(Point(0, 0)), Queen) then
+		Board:reset()
+	else
+		self:remove(piece)
+		piece.position = point
+		self:place(piece)
 
-	if piece then
-		O:delete(a)
-
-		if is(O:get(b), King) or is(O:get(Point(0, 0)), King) then
-			Board:reset()
-		elseif b.y == 0 and is(piece, Pawn) then
-			O:set(Rook(piece.color, b))
-		elseif b.y == 0 and is(piece, Rook) then
-			O:set(Pawn(piece.color, b))
-		else
-			piece.position = b
-			O:set(piece)
+		if piece.position.y == 0 and piece.promote then
+			piece:promote()
 		end
 	end
 end
 
-function Board.pixelToPoint(O, pixel)
-	local center = Point(O._texture:getDimensions())/2
-	local y = round(pixel:distance(center) / (2*O._radiusStep))
+function Board:pixelToPoint(pixel)
+	local center = Point(self._texture:getDimensions())/2
+	local y = round(pixel:distance(center) / (2*self._radiusStep))
 
-	if y == 0 then
-		return Point(0, 0)
-	elseif y <= 6 then
+	if y <= 6 then
 		local arc = Board.xsteps(y) * PI/16
 		local angle = wrapAngle(pixel:angle(center) + arc)
 
-		return Point(Board.xsteps(y) * floor(angle / (2*arc)), y)
+		return Board.point(Board.xsteps(y) * floor(angle / (2*arc)), y)
 	end
 end
 
-function Board.renderBoardTexture(O)
+function Board:remove(piece)
+	self._pieces[Board.pointToIndex(piece.position)] = nil
+end
+
+function Board:renderBoardTexture()
 	local w, h = lgfx.getDimensions()
 
-	O._texture = lgfx.newCanvas(w, h, {msaa = 16})
-	O._radius = min(w, h)/2
-	O._radiusStep = O._radius/13
-	O._pieceSize = 0.65 * O._radiusStep
+	self._texture    = lgfx.newCanvas(w, h, {msaa = 16})
+	self._radius     = min(w, h)/2
+	self._radiusStep = self._radius/13
+	self._pieceSize  = 0.65 * self._radiusStep
 
-	lgfx.setCanvas(O._texture)
+	lgfx.setCanvas(self._texture)
 
 	local cx, cy = w/2, h/2
 	local strips = {COLOR_CARDINALS, COLOR_SUBDIAGONALS,
 						 COLOR_DIAGONALS, COLOR_SUBDIAGONALS}
 
 	for _, y in ipairs({6, 3, 1}) do
-		lgfx.stripedDisk(cx, cy, (2*y + 1) * O._radiusStep,
+		lgfx.stripedDisk(cx, cy, (2*y + 1) * self._radiusStep,
 							  loop(strips, 4, Board.xsteps(y)))
 	end
 
-	lgfx.colored(lgfx.ellipse, COLOR_CARDINALS, 'fill', cx, cy, O._radiusStep)
+	lgfx.colored(lgfx.ellipse, COLOR_CARDINALS, 'fill', cx, cy, self._radiusStep)
 
 	for i = 1, 13, 2 do
-		lgfx.colored(lgfx.ellipse, COLOR_OUTLINE, 'line', cx, cy, i*O._radiusStep)
-	end
-
-	for y = 2, 4, 2 do
-		for x = Board.xsteps(y), 15, 2*Board.xsteps(y) do
-			local px, py = y * 2*O._radiusStep - 0.55*O._radiusStep, 0
-
-			lgfx.push()
-			lgfx.translate(cx, cy)
-			lgfx.rotate(x * PI/8)
-			lgfx.colored(lgfx.y, COLOR_OUTLINE, px, py, O._pieceSize)
-			lgfx.pop()
-		end
+		lgfx.colored(lgfx.ellipse, COLOR_OUTLINE, 'line',
+						 cx, cy, i * self._radiusStep)
 	end
 
 	lgfx.setCanvas()
 end
 
-function Board.reset(O)
-	O._pieces = {}
-	O._selected = nil
+function Board:reset()
+	self._pieces   = {}
+	self._selected = nil
 
-	for dx, color in pairs({[0] = COLOR_BLACK, [8] = COLOR_WHITE}) do
-		O:set(Pawn(color, Point(4 + dx, 3)))
-		O:set(Rook(color, Point(4 + dx, 4)))
-		O:set(Rook(color, Point(4 + dx, 5)))
-		O:set(King(color, Point(4 + dx, 6)))
+	for x, color in pairs({[4] = COLOR_BLACK, [12] = COLOR_WHITE}) do
+		self:place(Pawn(color, Point(x, 3)))
+		self:place(Rook(color, Point(x, 4)))
+		self:place(Rook(color, Point(x, 5)))
+		self:place(Queen(color, Point(x, 6)))
 
-		for x = -1, 1, 2 do
+		for dx = -1, 1, 2 do
 			for y = 4, 6 do
-				O:set(Pawn(color, Point(4 + dx + x, y)))
+				self:place(Pawn(color, Point(x + dx, y)))
 			end
 		end
 	end
 end
 
-function Board.select(O, point)
-	local target = O:get(point)
+function Board:select(point)
+	local target = self:get(point)
 
-	if O._selected then
-		if contains(O:listValidMoves(), point) then
-			O:move(O._selected.position, point)
-			O._selected = nil
-		elseif target and target.color == O._selected.color then
-			O._selected = target ~= O._selected and target or nil
+	if self._selected then
+		if target and self._selected:isAllyOf(target) then
+			self._selected = target ~= self._selected and target or nil
+		elseif contains(self:listValidMoves(), point) then
+			self:move(self._selected, point)
+			self._selected = nil
 		else
-			O._selected = nil
+			self._selected = nil
 		end
 	else
-		O._selected = target
+		self._selected = target
 	end
 end
 
-function Board.set(O, piece)
-	O._pieces[Board.pointToIndex(piece.position)] = piece
+function Board:place(piece)
+	self._pieces[Board.pointToIndex(piece.position)] = piece
 end
 
 --------------------------------------------------------------------------------
 
-function Pawn.draw(O, px, py, size)
-	lgfx.outlined(lgfx.ellipse, O.color, px, py, size)
+function Pawn:draw(px, py, size)
+	lgfx.outlined(lgfx.ellipse, self._color, px, py, size)
 end
 
-function Pawn.eyes(O)
-	local m = Board.xsteps(O.position.y)
-	local eyes = {}
+function Pawn:eyes()
+	local x, y = self.position.x, self.position.y
+	local m = Board.xsteps(self.position.y)
+	local eyes = {{Board.point(x, y + 1)}}
 
-	if O.position.y == 0 then
-		eyes[#eyes + 1] = {Board.wrapPoint(-4, 1)}
-		eyes[#eyes + 1] = {Board.wrapPoint(4, 1)}
+	if Board.isIntersection(self.position) then
+		eyes[#eyes + 1] = {Board.point(x + m, y - 1)}
+		eyes[#eyes + 1] = {Board.point(x - m, y - 1)}
 	else
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x - m, O.position.y)}
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x + m, O.position.y)}
+		eyes[#eyes + 1] = {Board.point(x, y - 1)}
 	end
 
-	if O.position.y < 6 then
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y + 1)}
+	if y == 0 then
+		x, y, m = 0, 1, 4
 	end
 
-	if Board.isIntersection(O.position) then
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x - m, O.position.y - 1)}
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x + m, O.position.y - 1)}
-	else
-		eyes[#eyes + 1] = {Board.wrapPoint(O.position.x, O.position.y - 1)}
-	end
+	eyes[#eyes + 1] = {Board.point(x - m, y)}
+	eyes[#eyes + 1] = {Board.point(x + m, y)}
 
 	return eyes
 end
 
---------------------------------------------------------------------------------
-
-function Rook.draw(O, px, py, size)
-	size = size * PI/4
-
-	lgfx.outlined(lgfx.rectangle, O.color, px - size, py - size, 2*size, 2*size)
+function Pawn:promote()
+	setmetatable(self, Rook)
 end
 
-function Rook.eyes(O)
-	local m = Board.xsteps(O.position.y)
+--------------------------------------------------------------------------------
+
+function Rook:draw(px, py, size)
+	size = size * PI/4
+
+	lgfx.outlined(lgfx.rectangle, self._color, px - size, py - size,
+															 2*size, 2*size)
+end
+
+function Rook:eyes()
+	local x, y = self.position.x, self.position.y
+	local m = Board.xsteps(self.position.y)
 	local eyes = {}
 
 	for j = -1, 1, 2 do
-		local horizontal = {}; eyes[#eyes + 1] = horizontal
-		local vertical   = {}; eyes[#eyes + 1] = vertical
+		local one = {}; eyes[#eyes + 1] = one
+		local two = {}; eyes[#eyes + 1] = two
 
-		if O.position.y == 0 then
-			for i = O.position.y + j, 6*j, j do
-				horizontal[#horizontal + 1] = Board.wrapPoint(O.position.x + 4, i)
+		if self.position.y == 0 then
+			for i = y + j, 6*j, j do
+				one[#one + 1] = Board.point(x + 4, i)
 			end
 		else
-			for i = O.position.x + j*m, O.position.x + 15*j, j*m do
-				horizontal[#horizontal + 1] = Board.wrapPoint(i, O.position.y)
+			for i = x + j*m, x + 15*j, j*m do
+				one[#one + 1] = Board.point(i, y)
 			end
 		end
 
-		for i = O.position.y + j, 6*j, j do
-			vertical[#vertical + 1] = Board.wrapPoint(O.position.x, i)
+		for i = y + j, 6*j, j do
+			two[#two + 1] = Board.point(x, i)
 		end
 	end
 
 	return eyes
 end
 
+function Rook:promote()
+	setmetatable(self, Pawn)
+end
+
 --------------------------------------------------------------------------------
 
-function King.draw(O, px, py, size)
+function Queen:draw(px, py, size)
 	size = size * PI/sqrt(3)
 
 	local l = sqrt(size^2 * 4/3)
 
-	lgfx.outlined(lgfx.polygon, O.color, {px - size/2, py,
-													  px + size/2, py - l/2,
-													  px + size/2, py + l/2})
+	lgfx.outlined(lgfx.polygon, self._color, {px - size/2, py,
+													      px + size/2, py - l/2,
+													      px + size/2, py + l/2})
 end
 
-function King.eyes(O)
-	local m = Board.xsteps(O.position.y)
-	local eyes = {{Board.wrapPoint(O.position.x - m, O.position.y),
-						Board.wrapPoint(O.position.x - 2*m, O.position.y)},
-					  {Board.wrapPoint(O.position.x + m, O.position.y),
-					   Board.wrapPoint(O.position.x + 2*m, O.position.y)},
-					  {Board.wrapPoint(O.position.x, O.position.y - 1),
-					  	Board.wrapPoint(O.position.x, O.position.y - 2)}}
+function Queen:eyes()
+	local x, y = self.position.x, self.position.y
+	local m = Board.xsteps(self.position.y)
 
-	return eyes
+	return {{Board.point(x - m, y), Board.point(x - 2*m, y)},
+			  {Board.point(x + m, y), Board.point(x + 2*m, y)},
+			  {Board.point(x, y - 1), Board.point(x, y - 2)}}
 end
 
 --------------------------------------------------------------------------------
