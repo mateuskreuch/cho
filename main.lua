@@ -245,7 +245,7 @@ function Board:move(piece, point)
 		piece.position = point
 		self:place(piece)
 
-		if piece.position.y == 0 and piece.promote then
+		if piece.position.y == 0 then
 			piece:promote()
 		end
 	end
@@ -426,6 +426,9 @@ function Queen:eyes()
 	return {{Board.point(x - m, y), Board.point(x - 2*m, y)},
 			  {Board.point(x + m, y), Board.point(x + 2*m, y)},
 			  {Board.point(x, y - 1), Board.point(x, y - 2)}}
+end
+
+function Queen:promote()
 end
 
 --------------------------------------------------------------------------------
