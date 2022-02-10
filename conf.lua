@@ -1,6 +1,7 @@
 function love.conf(love)
-   love.window.width = 450
-   love.window.height = 800
+   love.window.title = "Cho"
+   love.window.width = 500
+   love.window.height = 500
    love.window.resizable = true
    love.window.vsync = true
    love.window.fullscreen = false

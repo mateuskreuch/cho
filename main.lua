@@ -422,10 +422,15 @@ end
 function Queen:eyes()
 	local x, y = self.position.x, self.position.y
 	local m = Board.xsteps(self.position.y)
+	local ray = {}
+
+	for i = y - 1, 0, -1 do
+		ray[#ray + 1] = Board.point(x, i)
+	end
 
 	return {{Board.point(x - m, y), Board.point(x - 2*m, y)},
 			  {Board.point(x + m, y), Board.point(x + 2*m, y)},
-			  {Board.point(x, y - 1), Board.point(x, y - 2)}}
+			  ray}
 end
 
 function Queen:promote()

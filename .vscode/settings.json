@@ -1,0 +1,16 @@
+{
+   "workbench.colorTheme": "Moony",
+   "Lua.diagnostics.disable": [
+      "lowercase-global",
+      "trailing-space",
+      "empty-block",
+      "ambiguity-1"
+   ],
+   "Lua.color.mode": "Grammar",
+   "Lua.diagnostics.severity": {
+      "unused-local": "Warning"
+   },
+   "bracket-pair-colorizer-2.excludedLanguages": [
+      "lua"
+   ]
+}
